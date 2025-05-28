@@ -1,9 +1,11 @@
-// js/itemSystem.js
+// js/itemSystem.js - Fixed spawning for Tiled maps
 
 // Import dependencies
 // Player is real, InventoryManager is a dummy from main.js for now
-import { gameState, Player, InventoryManager, ctx, canvas } from './main.js'; // <--- ADD canvas HERE
+import { gameState, Player, InventoryManager, ctx, canvas, CONFIG } from './main.js'; // <--- ADD CONFIG HERE
 import { Utils } from './utils.js';
+import { World } from './main.js'; // Import World directly
+
 export const ItemSystem = {
     create: function(x, y, type) {
         const item = {
@@ -26,47 +28,67 @@ export const ItemSystem = {
         return item;
     },
 
-    spawnTestItem: function() {
-        // Spawn multiple health potions
-        for (let i = 0; i < 5; i++) {
-            const safeSpot = Utils.findSafeSpawnPosition();
-            const offsetX = (Math.random() - 0.5) * 200;
-            const offsetY = (Math.random() - 0.5) * 200;
-            
-            const healthPotion = this.create(
-                safeSpot.x + offsetX, 
-                safeSpot.y + offsetY, 
-                'health'
-            );
-            
-            if (!Utils.checkCollision(healthPotion.x, healthPotion.y, healthPotion.width, healthPotion.height)) {
-                gameState.items.push(healthPotion);
-            } else {
-                // If offset position is bad, use original safe spot without offset
-                gameState.items.push(this.create(safeSpot.x, safeSpot.y, 'health'));
-            }
+    // 🔧 FIXED: Better spawning for Tiled maps
+    findRandomGrassPosition: function() {
+        const world = World.getCurrentWorld();
+        if (!world || !world.tiles) {
+            console.warn('⚠️ No world data for item spawning, using fallback');
+            return { x: 200 + Math.random() * 400, y: 200 + Math.random() * 400 };
         }
 
-        // Spawn some mana potions
-        for (let i = 0; i < 3; i++) {
-            const safeSpot = Utils.findSafeSpawnPosition();
-            const offsetX = (Math.random() - 0.5) * 200;
-            const offsetY = (Math.random() - 0.5) * 200;
+        // Try to find a grass tile (non-solid) randomly
+        let attempts = 0;
+        const maxAttempts = 50;
+        
+        while (attempts < maxAttempts) {
+            // Pick random coordinates across the map (avoid edges)
+            const tileX = Math.floor(Math.random() * (world.width - 4)) + 2;  // 2 tiles from edge
+            const tileY = Math.floor(Math.random() * (world.height - 4)) + 2; // 2 tiles from edge
             
-            const manaPotion = this.create(
-                safeSpot.x + offsetX, 
-                safeSpot.y + offsetY, 
-                'mana'
-            );
-            
-            if (!Utils.checkCollision(manaPotion.x, manaPotion.y, manaPotion.width, manaPotion.height)) {
-                gameState.items.push(manaPotion);
-            } else {
-                gameState.items.push(this.create(safeSpot.x, safeSpot.y, 'mana'));
+            // Check if this tile exists and is walkable
+            if (world.tiles[tileY] && world.tiles[tileY][tileX]) {
+                const tile = world.tiles[tileY][tileX];
+                
+                // If it's grass (not solid), use this position
+                if (!tile.solid) {
+                    const worldX = tileX * world.tileSize + Math.random() * (world.tileSize - 16);
+                    const worldY = tileY * world.tileSize + Math.random() * (world.tileSize - 16);
+                    
+                    console.log(`✅ Found grass position at tile (${tileX},${tileY}) = world (${worldX.toFixed(0)},${worldY.toFixed(0)})`);
+                    return { x: worldX, y: worldY };
+                }
             }
+            attempts++;
         }
         
-        // console.log(`Spawned ${gameState.items.length} potions around the world!`);
+        console.warn(`⚠️ Couldn't find grass after ${maxAttempts} attempts, using fallback`);
+        return { x: 200 + Math.random() * 400, y: 200 + Math.random() * 400 };
+    },
+
+    spawnTestItem: function() {
+        console.log('🧪 Spawning test items across the map...');
+        
+        // Clear existing items
+        gameState.items = [];
+        
+        // Spawn multiple health potions across the map
+        for (let i = 0; i < 8; i++) {  // Increased from 5 to 8
+            const position = this.findRandomGrassPosition();
+            const healthPotion = this.create(position.x, position.y, 'health');
+            gameState.items.push(healthPotion);
+            console.log(`🔴 Health potion ${i+1} at (${position.x.toFixed(0)}, ${position.y.toFixed(0)})`);
+        }
+
+        // Spawn mana potions
+        for (let i = 0; i < 5; i++) {  // Increased from 3 to 5
+            const position = this.findRandomGrassPosition();
+            const manaPotion = this.create(position.x, position.y, 'mana');
+            gameState.items.push(manaPotion);
+            console.log(`🔵 Mana potion ${i+1} at (${position.x.toFixed(0)}, ${position.y.toFixed(0)})`);
+        }
+        
+        console.log(`✅ Spawned ${gameState.items.length} potions across the world!`);
+        console.log(`📍 Player spawn: (${Player.x.toFixed(0)}, ${Player.y.toFixed(0)})`);
     },
 
     dropLoot: function(x, y) {
@@ -78,7 +100,7 @@ export const ItemSystem = {
             
             const loot = this.create(dropX, dropY, itemType);
             gameState.items.push(loot);
-            // console.log(`Enemy dropped a ${itemType} potion!`);
+            console.log(`💀 Enemy dropped a ${itemType} potion at (${dropX.toFixed(0)}, ${dropY.toFixed(0)})`);
         }
     },
 
@@ -101,7 +123,7 @@ export const ItemSystem = {
                 };
                 
                 InventoryManager.addItem(itemData); // InventoryManager is currently a dummy from main.js
-                // console.log(`Picked up ${item.name}! Press I to open inventory.`);
+                console.log(`📦 Picked up ${item.name}! Press I to open inventory.`);
                 
                 gameState.items.splice(i, 1);
             }

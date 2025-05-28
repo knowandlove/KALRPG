@@ -1,8 +1,8 @@
-// js/main.js
+// js/main.js - Updated for 16x16 tilesets and Tiled map support
 
 // --- Core Configuration & Setup ---
 export const CONFIG = {
-    TILE_SIZE: 32,
+    TILE_SIZE: 32,          // Display size (we'll scale 16x16 to 32x32)
     WORLD_WIDTH: 100,
     WORLD_HEIGHT: 100,
     CANVAS_WIDTH: 800,
@@ -21,7 +21,12 @@ import { ItemSystem } from './itemSystem.js';
 import { InventoryManager } from './inventoryManager.js';
 import { UI } from './ui.js';
 import { NPCSystem } from './npcSystem.js';
-import { DialogueSystem } from './dialogueSystem.js'; // ✅ REAL DialogueSystem module
+import { DialogueSystem } from './dialogueSystem.js';
+import { EnemySystem } from './enemySystem.js';
+import { Renderer } from './renderer.js';
+import { Camera } from './camera.js';
+import { World } from './world.js';
+import { AssetManager } from './assetManager.js';
 
 // --- Global Game State ---
 export const gameState = {
@@ -32,7 +37,7 @@ export const gameState = {
     inventory: [], 
     showInventory: false,
     npcs: [], 
-    dialogue: { // This will be managed by the real DialogueSystem
+    dialogue: {
         active: false,
         speaker: '',
         message: '',
@@ -47,32 +52,7 @@ export const gameState = {
     }
 };
 
-// --- TEMPORARY Dummy Game System Objects (defined without direct export) ---
-// Player, Utils, ProjectileSystem, ItemSystem, InventoryManager, UI, NPCSystem, DialogueSystem are now real.
-const EnemySystem_dummy = { create: () => ({}), spawn: () => {}, updateAll: () => {} };
-const World_dummy = { generate: () => [] };
-const Camera_dummy = { 
-    update: function() { 
-        if (Player && gameState && gameState.camera && CONFIG) { 
-            gameState.camera.x = Player.x - gameState.camera.width / 2;
-            gameState.camera.y = Player.y - gameState.camera.height / 2;
-            gameState.camera.x = Math.max(0, Math.min(gameState.camera.x, CONFIG.WORLD_WIDTH * CONFIG.TILE_SIZE - gameState.camera.width));
-            gameState.camera.y = Math.max(0, Math.min(gameState.camera.y, CONFIG.WORLD_HEIGHT * CONFIG.TILE_SIZE - gameState.camera.height));
-        }
-    } 
-}; 
-const Renderer_dummy = { 
-    renderWorld: () => {}, 
-    renderEnemies: () => {}, 
-    renderPlayer: () => { 
-        if(Player && gameState && gameState.camera && ctx) { 
-             ctx.fillStyle = Player.damageFlash ? '#ff4444' : (Player.invulnerable ? '#6495ed' : '#4169e1'); 
-             ctx.fillRect(Player.x - gameState.camera.x, Player.y - gameState.camera.y, Player.width, Player.height); 
-        }
-    } 
-};
-
-// Export necessary modules/variables that other modules might import FROM main.js
+// Export all modules
 export { 
     Player, 
     ProjectileSystem, 
@@ -80,15 +60,64 @@ export {
     InventoryManager,
     UI,
     NPCSystem,
-    DialogueSystem, // ✅ Exporting the REAL DialogueSystem
-    EnemySystem_dummy as EnemySystem,
-    World_dummy as World,
-    Camera_dummy as Camera,
-    Renderer_dummy as Renderer
+    DialogueSystem,
+    EnemySystem,
+    Renderer,
+    Camera,
+    World,
+    AssetManager
 };
 
+// --- ASSET LOADING FOR YOUR 16x16 TILESETS ---
+async function loadGameAssets() {
+    console.log('🎨 Loading your 16x16 professional tilesets...');
+    
+    try {
+        // Load your grass tileset (16x16 pixels, scaled to 32x32 for display)
+        await AssetManager.loadTileset(
+            'grass',                            // Name for referencing
+            'assets/tilesets/grass.png',        // Your grass tileset path
+            16,                                 // Source tile width (your actual tile size)
+            16,                                 // Source tile height
+            0,                                  // Margin
+            0                                   // Spacing
+        );
+        
+        console.log('✅ Grass tileset loaded');
+        
+        // Load your trees tileset
+        await AssetManager.loadTileset(
+            'trees',                            // Name for referencing
+            'assets/tilesets/trees.png',        // Your trees tileset path  
+            16,                                 // Source tile width
+            16,                                 // Source tile height
+            0,                                  // Margin
+            0                                   // Spacing
+        );
+        
+        console.log('✅ Trees tileset loaded');
+        
+        // Optional: Load your Tiled map JSON
+        try {
+            await AssetManager.loadTiledMap(
+                'overworld_map',
+                './assets/maps/overworld_map.json'  // Organized in assets/maps/ folder
+            );
+            console.log('✅ Your custom map loaded successfully!');
+        } catch (error) {
+            console.log('📋 Custom map not found, will use procedural generation');
+            console.log('🔧 Make sure map is in assets/maps/ folder');
+        }
+        
+        console.log('🎉 All assets loaded successfully!');
+        
+    } catch (error) {
+        console.error('❌ Failed to load some assets:', error);
+        console.log('🔄 Game will use fallback graphics where needed');
+    }
+}
 
-// --- Input Handling ---
+// --- INPUT HANDLING ---
 document.addEventListener('keydown', (e) => {
     keys[e.key.toLowerCase()] = true;
     
@@ -109,14 +138,11 @@ document.addEventListener('keydown', (e) => {
 
     if (gameState.dialogue && gameState.dialogue.active) {
         if (e.key.toLowerCase() === 'e') {
-            // If dialogue is active, 'E' tries to advance/close it.
-            // NPCSystem.startInteraction handles advancing dialogue.
-            // If not handled by NPC (e.g. simple message), DialogueSystem.closeDialogue as fallback.
             const activeNPC = gameState.npcs.find(npc => npc.name === gameState.dialogue.speaker && npc.isTalking);
-            if (activeNPC && NPCSystem.startInteraction) { // Check if method exists
+            if (activeNPC && NPCSystem.startInteraction) {
                 NPCSystem.startInteraction(activeNPC); 
             } else {
-                DialogueSystem.closeDialogue(); // Uses REAL DialogueSystem
+                DialogueSystem.closeDialogue();
             }
         }
         return; 
@@ -144,8 +170,7 @@ document.addEventListener('keyup', (e) => {
     }
 });
 
-
-// --- Main Game Loop & Initialization ---
+// --- GAME LOOP ---
 function gameLoop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -153,47 +178,120 @@ function gameLoop() {
 
     if (!gameLogicUpdatesPaused) {
         Player.update(); 
-        EnemySystem_dummy.updateAll(); 
+        EnemySystem.updateAll();
         ProjectileSystem.update(); 
         ItemSystem.checkPickup(); 
         NPCSystem.update(); 
-        Camera_dummy.update(); 
-    }
-    // Dialogue system updates its timer regardless if active (but not if inventory is shown perhaps)
-    if (!gameState.showInventory) {
-        DialogueSystem.update(); // ✅ Uses REAL DialogueSystem.update()
+        Camera.update();
     }
     
-    Renderer_dummy.renderWorld(); 
-    Renderer_dummy.renderEnemies(); 
+    if (!gameState.showInventory) {
+        DialogueSystem.update();
+    }
+    
+    Renderer.renderWorld();
+    EnemySystem.render();
     ItemSystem.render(); 
     NPCSystem.render(); 
-    Renderer_dummy.renderPlayer(); 
+    Renderer.renderPlayer();
     ProjectileSystem.render(); 
     UI.update(); 
     UI.renderInventory(); 
-    DialogueSystem.render(); // ✅ Uses REAL DialogueSystem.render()
+    DialogueSystem.render();
     
     requestAnimationFrame(gameLoop);
 }
 
-function initGame() {
-    gameState.world = World_dummy.generate(); 
-    const safeSpawn = Utils.findSafeSpawnPosition(); 
+// --- GAME INITIALIZATION ---
+async function initGame() {
+    console.log('🚀 Starting game with professional 16x16 tilesets...');
+    
+    // Load assets first
+    await loadGameAssets();
+    
+    // Initialize world system (now supports Tiled maps)
+    await World.init();
+    gameState.world = World.generate();
+    
+    // Set up player at safe spawn position
+    const safeSpawn = World.findSafeSpawnPosition();
     Player.x = safeSpawn.x; 
     Player.y = safeSpawn.y;
     
-    Camera_dummy.update(); 
-
-    EnemySystem_dummy.spawn(); 
+    // Initialize other systems
+    Camera.update();
+    EnemySystem.spawn();
     ItemSystem.spawnTestItem(); 
     NPCSystem.spawnTestNPC(); 
     
-    console.log('🚀 Adventure Game (Refactored) Started!');
-    console.log('🎮 Controls: WASD (move), X (attack), I (inventory), E (interact)');
+    console.log('🎉 Game ready with professional tilesets!');
+    console.log('🌍 Current world:', World.getCurrentWorld().name);
     
+    // Start the game loop
     gameLoop();
 }
 
+// --- DEBUG HELPER (Optional) ---
+window.debugTilesets = function() {
+    console.log('🔍 Tileset Debug Info:');
+    console.log('Grass tileset:', AssetManager.tilesets.grass);
+    console.log('Trees tileset:', AssetManager.tilesets.trees);
+    
+    // Show first few tiles from each tileset
+    const debugCanvas = document.createElement('canvas');
+    debugCanvas.width = 400;
+    debugCanvas.height = 200;
+    debugCanvas.style.position = 'absolute';
+    debugCanvas.style.top = '10px';
+    debugCanvas.style.right = '10px';
+    debugCanvas.style.border = '2px solid lime';
+    debugCanvas.style.zIndex = '1000';
+    debugCanvas.style.backgroundColor = 'white';
+    document.body.appendChild(debugCanvas);
+    
+    const debugCtx = debugCanvas.getContext('2d');
+    
+    // Show grass tiles (16x16 source, scaled to 32x32)
+    debugCtx.fillStyle = 'black';
+    debugCtx.font = '12px Arial';
+    debugCtx.fillText('Grass Tiles (16x16 → 32x32):', 5, 15);
+    
+    for (let i = 0; i < 8; i++) {
+        AssetManager.drawTile(debugCtx, 'grass', i, 5 + i * 34, 20, 32, 32);
+    }
+    
+    // Show tree tiles
+    debugCtx.fillText('Tree Tiles (16x16 → 32x32):', 5, 75);
+    for (let i = 0; i < 8; i++) {
+        AssetManager.drawTile(debugCtx, 'trees', i, 5 + i * 34, 80, 32, 32);
+    }
+    
+    // Add close button
+    debugCtx.fillStyle = 'red';
+    debugCtx.fillRect(370, 5, 25, 15);
+    debugCtx.fillStyle = 'white';
+    debugCtx.font = '10px Arial';
+    debugCtx.fillText('X', 378, 15);
+    
+    debugCanvas.addEventListener('click', (e) => {
+        const rect = debugCanvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        if (x > 370 && x < 395 && y > 5 && y < 20) {
+            document.body.removeChild(debugCanvas);
+        }
+    });
+};
+
 // Start the game
-initGame();
+initGame().catch(error => {
+    console.error('💥 Game failed to start:', error);
+    console.log('🔧 Check that your tileset paths are correct!');
+    console.log('📁 Expected structure:');
+    console.log('  assets/tilesets/grass.png');
+    console.log('  assets/tilesets/trees.png');
+    console.log('  assets/maps/overworld_map.json');
+});
+
+// Make debug function available globally
+console.log('🛠️ Debug: Call debugTilesets() in console to see tileset preview');

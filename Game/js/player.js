@@ -1,4 +1,4 @@
-// js/player.js
+// js/player.js - Fixed movement speed
 
 // Import dependencies
 // These will initially point to the exports from main.js (which might be dummy objects for some systems)
@@ -14,7 +14,7 @@ export const Player = {
     y: 0,
     width: 24,
     height: 24,
-    speed: 3,
+    speed: 2.5,  // 🔧 REDUCED from 3 to 2.5 for better control
     hp: 100,
     maxHp: 100,
     mana: 100,
@@ -48,7 +48,7 @@ export const Player = {
     charging: false,
     chargeLevel: 0,
     maxChargeLevel: 100,
-    chargeRate: 2,
+    chargeRate: 1.8,  // 🔧 REDUCED from 2 to 1.8 for more controlled charging
 
     update: function() {
         let newX = this.x;
@@ -82,20 +82,26 @@ export const Player = {
                 this.knockback.timer = 0;
             }
         } else if (!gameState.showInventory) {
+            // 🔧 FRAME-RATE INDEPENDENT MOVEMENT
+            // Calculate actual movement based on expected 60fps
+            const deltaTime = 16; // Assume 16ms per frame (60fps)
+            const speedMultiplier = deltaTime / 16; // Normalize to 60fps
+            const actualSpeed = this.speed * speedMultiplier;
+            
             if (keys['w'] || keys['arrowup']) {
-                newY -= this.speed;
+                newY -= actualSpeed;
                 this.facing = 'up';
             }
             if (keys['s'] || keys['arrowdown']) {
-                newY += this.speed;
+                newY += actualSpeed;
                 this.facing = 'down';
             }
             if (keys['a'] || keys['arrowleft']) {
-                newX -= this.speed;
+                newX -= actualSpeed;
                 this.facing = 'left';
             }
             if (keys['d'] || keys['arrowright']) {
-                newX += this.speed;
+                newX += actualSpeed;
                 this.facing = 'right';
             }
             
