@@ -1,20 +1,16 @@
-// js/player.js - Fixed movement speed
+// js/player.js - Updated with sprite animation system
 
-// Import dependencies
-// These will initially point to the exports from main.js (which might be dummy objects for some systems)
 import { keys, CONFIG, gameState } from './main.js';
 import { Utils } from './utils.js';
-// ProjectileSystem and ItemSystem will be dummy objects from main.js initially
 import { ProjectileSystem } from './main.js'; 
 import { ItemSystem } from './main.js';
-
 
 export const Player = {
     x: 0,
     y: 0,
     width: 24,
     height: 24,
-    speed: 2.5,  // 🔧 REDUCED from 3 to 2.5 for better control
+    speed: 2.5,
     hp: 100,
     maxHp: 100,
     mana: 100,
@@ -44,11 +40,123 @@ export const Player = {
         duration: 200,
         friction: 0.88
     },
-    
     charging: false,
     chargeLevel: 0,
     maxChargeLevel: 100,
-    chargeRate: 1.8,  // 🔧 REDUCED from 2 to 1.8 for more controlled charging
+    chargeRate: 1.8,
+
+    // 🎨 Sprite Animation System - Fixed direction mapping
+    sprite: {
+        loaded: false,
+        image: null,
+        frameWidth: 16,      // Your sprite frame size
+        frameHeight: 16,
+        currentFrame: 0,
+        frameTimer: 0,
+        frameDelay: 200,     // Milliseconds between frames
+        isMoving: false,
+        
+        // 🔧 FIXED: Animation definitions with corrected direction mapping
+        // Based on typical sprite sheet layout: down, left, right, up
+        animations: {
+            idle_down: { frames: [0], row: 0 },    // Row 0 = facing down (forward)
+            walk_down: { frames: [0, 1, 2, 3], row: 0 },
+            idle_left: { frames: [0], row: 1 },    // Row 1 = facing left
+            walk_left: { frames: [0, 1, 2, 3], row: 1 },
+            idle_right: { frames: [0], row: 2 },   // Row 2 = facing right  
+            walk_right: { frames: [0, 1, 2, 3], row: 2 },
+            idle_up: { frames: [0], row: 3 },      // Row 3 = facing up (away)
+            walk_up: { frames: [0, 1, 2, 3], row: 3 }
+        },
+        
+        currentAnimation: 'idle_down'
+    },
+
+    // 🔧 DEBUG: Test function to check sprite directions
+    testSpriteDirections: function() {
+        console.log('🧪 Testing sprite directions - use arrow keys to see each row:');
+        console.log('Current animation:', this.sprite.currentAnimation);
+        console.log('Current row:', this.sprite.animations[this.sprite.currentAnimation].row);
+    },
+
+    // 🎨 Load player sprite - back to simple version
+    loadSprite: function(imagePath) {
+        console.log('🎨 Loading player sprite...');
+        this.sprite.image = new Image();
+        this.sprite.image.onload = () => {
+            this.sprite.loaded = true;
+            console.log('✅ Player sprite loaded successfully!');
+            console.log('🧪 Use debugSprite() in console to test directions');
+        };
+        this.sprite.image.onerror = () => {
+            console.error('❌ Failed to load player sprite');
+        };
+        this.sprite.image.src = imagePath;
+    },
+
+    // 🎨 Update sprite animation - with better debugging
+    updateAnimation: function() {
+        if (!this.sprite.loaded) return;
+
+        // Determine if player is moving
+        const isMoving = keys['w'] || keys['s'] || keys['a'] || keys['d'] || 
+                        keys['arrowup'] || keys['arrowdown'] || keys['arrowleft'] || keys['arrowright'];
+        
+        this.sprite.isMoving = isMoving && !gameState.showInventory;
+
+        // 🔧 DEBUG: Log movement and facing
+        if (isMoving) {
+            console.log(`🏃 Moving: facing ${this.facing}, keys:`, {
+                w: keys['w'], s: keys['s'], a: keys['a'], d: keys['d']
+            });
+        }
+
+        // Set animation based on facing direction and movement
+        let targetAnimation;
+        if (this.sprite.isMoving) {
+            targetAnimation = `walk_${this.facing}`;
+        } else {
+            targetAnimation = `idle_${this.facing}`;
+        }
+
+        // Change animation if needed
+        if (this.sprite.currentAnimation !== targetAnimation) {
+            console.log(`🎬 Animation change: ${this.sprite.currentAnimation} -> ${targetAnimation}`);
+            this.sprite.currentAnimation = targetAnimation;
+            this.sprite.currentFrame = 0;
+            this.sprite.frameTimer = 0;
+        }
+
+        // Update frame timer
+        this.sprite.frameTimer += 16; // Assuming 60fps (16ms per frame)
+
+        // Advance frame if enough time has passed
+        if (this.sprite.frameTimer >= this.sprite.frameDelay) {
+            const animation = this.sprite.animations[this.sprite.currentAnimation];
+            if (animation && animation.frames.length > 1) {
+                this.sprite.currentFrame = (this.sprite.currentFrame + 1) % animation.frames.length;
+            }
+            this.sprite.frameTimer = 0;
+        }
+    },
+
+    // 🎨 Get current sprite frame info
+    getCurrentFrame: function() {
+        if (!this.sprite.loaded) return null;
+
+        const animation = this.sprite.animations[this.sprite.currentAnimation];
+        if (!animation) return null;
+
+        const frameIndex = animation.frames[this.sprite.currentFrame];
+        const row = animation.row;
+
+        return {
+            sourceX: frameIndex * this.sprite.frameWidth,
+            sourceY: row * this.sprite.frameHeight,
+            width: this.sprite.frameWidth,
+            height: this.sprite.frameHeight
+        };
+    },
 
     update: function() {
         let newX = this.x;
@@ -82,11 +190,11 @@ export const Player = {
                 this.knockback.timer = 0;
             }
         } else if (!gameState.showInventory) {
-            // 🔧 FRAME-RATE INDEPENDENT MOVEMENT
-            // Calculate actual movement based on expected 60fps
-            const deltaTime = 16; // Assume 16ms per frame (60fps)
-            const speedMultiplier = deltaTime / 16; // Normalize to 60fps
+            const deltaTime = 16;
+            const speedMultiplier = deltaTime / 16;
             const actualSpeed = this.speed * speedMultiplier;
+            
+            let oldFacing = this.facing; // Track facing changes
             
             if (keys['w'] || keys['arrowup']) {
                 newY -= actualSpeed;
@@ -105,6 +213,11 @@ export const Player = {
                 this.facing = 'right';
             }
             
+            // 🔧 DEBUG: Log facing changes
+            if (oldFacing !== this.facing) {
+                console.log(`👁️ Facing changed: ${oldFacing} -> ${this.facing}`);
+            }
+            
             if (!Utils.checkCollision(newX, this.y, this.width, this.height)) {
                 this.x = newX;
             }
@@ -112,6 +225,9 @@ export const Player = {
                 this.y = newY;
             }
         }
+        
+        // Update sprite animation
+        this.updateAnimation();
         
         if (this.attackCooldown > 0) this.attackCooldown -= 16;
         
@@ -148,9 +264,9 @@ export const Player = {
         }
     },
 
+    // Rest of your existing methods (attack, checkLevelUp, takeDamage, respawn)
     attack: function() {
         const chargePercent = (this.chargeLevel / this.maxChargeLevel) * 100;
-        // console.log(`Attack triggered with charge: ${chargePercent.toFixed(1)}%`); // Keep for debug if needed
         
         if (chargePercent >= 33) {
             let manaCost;
@@ -160,13 +276,11 @@ export const Player = {
                 manaCost = 15;
             }
             
-            // console.log(`Ranged attack - Need ${manaCost} mana, have ${this.mana}`);
-            
             if (this.mana >= manaCost) {
                 const projectileX = this.x + this.width / 2;
                 const projectileY = this.y + this.height / 2;
                 
-                const projectile = ProjectileSystem.create( // Uses dummy ProjectileSystem for now
+                const projectile = ProjectileSystem.create(
                     projectileX, 
                     projectileY, 
                     this.facing, 
@@ -176,15 +290,11 @@ export const Player = {
                 gameState.projectiles.push(projectile);
                 
                 this.mana -= manaCost;
-                // console.log(`Fired projectile! Used ${manaCost} mana. (${this.mana}/${this.maxMana} remaining)`);
-                
                 this.chargeLevel = 0;
             } else {
-                // console.log(`Not enough mana! Need ${manaCost}, have ${this.mana}`);
                 this.chargeLevel = 0;
             }
         } else {
-            // console.log(`Melee attack - charge too low (${chargePercent.toFixed(1)}%)`);
             this.isAttacking = true;
             this.attackTimer = 0;
             
@@ -217,8 +327,8 @@ export const Player = {
                     break;
             }
             
-            gameState.enemies.forEach((enemy) => { // Removed index as it's not used here
-                if (!enemy.dying && // Added check for !enemy.dying
+            gameState.enemies.forEach((enemy) => {
+                if (!enemy.dying &&
                     enemy.x < attackX + attackWidth &&
                     enemy.x + enemy.width > attackX &&
                     enemy.y < attackY + attackHeight &&
@@ -244,7 +354,7 @@ export const Player = {
                         enemy.dying = true;
                         enemy.deathTimer = 0;
                         
-                        ItemSystem.dropLoot(enemy.x + enemy.width/2, enemy.y + enemy.height/2); // Uses dummy ItemSystem for now
+                        ItemSystem.dropLoot(enemy.x + enemy.width/2, enemy.y + enemy.height/2);
                         
                         this.xp += 25;
                         this.checkLevelUp();
@@ -264,8 +374,6 @@ export const Player = {
             
             this.maxHp += 20;
             this.hp = this.maxHp;
-            // Note: Player.maxMana does not increase on level up in original code
-            // Player.mana is not refilled on level up in original code
             this.attackDamage += 5;
             
             console.log(`Level up! Now level ${this.level}`);
@@ -302,7 +410,6 @@ export const Player = {
 
     respawn: function() {
         this.hp = this.maxHp;
-        // this.mana = this.maxMana; // Consider refilling mana on respawn too
         const respawnPos = Utils.findSafeSpawnPosition();
         this.x = respawnPos.x;
         this.y = respawnPos.y;

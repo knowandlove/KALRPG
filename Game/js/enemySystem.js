@@ -1,8 +1,8 @@
-// js/enemySystem.js
+// js/enemySystem.js - Fixed enemy spawning distribution
 
-// Import dependencies
 import { gameState, Player, ItemSystem, CONFIG, ctx, canvas } from './main.js';
 import { Utils } from './utils.js';
+import { World } from './main.js';
 
 export const EnemySystem = {
     create: function(x, y, type = 'goblin') {
@@ -42,24 +42,60 @@ export const EnemySystem = {
         };
     },
 
+    // 🔧 FIXED: Better enemy distribution
     spawn: function() {
-        // Clear existing enemies first
+        console.log('👹 Spawning enemies across the world...');
+        
+        // Clear existing enemies
         gameState.enemies = [];
         
-        for (let i = 0; i < 15; i++) {
-            let x, y, attempts = 0;
-            do {
-                x = Math.random() * (CONFIG.WORLD_WIDTH - 20) * CONFIG.TILE_SIZE + 10 * CONFIG.TILE_SIZE;
-                y = Math.random() * (CONFIG.WORLD_HEIGHT - 20) * CONFIG.TILE_SIZE + 10 * CONFIG.TILE_SIZE;
-                attempts++;
-            } while (Utils.checkCollision(x, y, 20, 20) && attempts < 50);
+        const world = World.getCurrentWorld();
+        if (!world) {
+            console.warn('⚠️ No current world for enemy spawning');
+            return;
+        }
+        
+        // Determine enemy count based on world
+        let enemyCount;
+        if (world.theme === 'cave') {
+            enemyCount = 20; // More enemies in cave
+        } else {
+            enemyCount = 10; // Fewer enemies in overworld
+        }
+        
+        console.log(`🎯 Attempting to spawn ${enemyCount} enemies in ${world.name}`);
+        
+        let successfulSpawns = 0;
+        let attempts = 0;
+        const maxAttempts = enemyCount * 10; // Try 10x more than needed
+        
+        while (successfulSpawns < enemyCount && attempts < maxAttempts) {
+            attempts++;
             
-            if (attempts < 50) {
-                gameState.enemies.push(this.create(x, y));
+            // Generate random position across the entire world
+            const x = Math.random() * (world.width - 4) * world.tileSize + 2 * world.tileSize;
+            const y = Math.random() * (world.height - 4) * world.tileSize + 2 * world.tileSize;
+            
+            // Check if position is valid (not solid, not too close to player)
+            if (!Utils.checkCollision(x, y, 20, 20)) {
+                // Make sure not too close to player spawn
+                const spawnX = world.spawnPoint.x * world.tileSize;
+                const spawnY = world.spawnPoint.y * world.tileSize;
+                const distanceFromSpawn = Math.sqrt((x - spawnX) ** 2 + (y - spawnY) ** 2);
+                
+                if (distanceFromSpawn > 100) { // At least 100 pixels from spawn
+                    gameState.enemies.push(this.create(x, y));
+                    successfulSpawns++;
+                }
             }
         }
         
-        console.log(`Spawned ${gameState.enemies.length} enemies!`);
+        console.log(`✅ Successfully spawned ${successfulSpawns} enemies after ${attempts} attempts`);
+        
+        // Log first few enemy positions for debugging
+        gameState.enemies.slice(0, 3).forEach((enemy, i) => {
+            console.log(`👹 Enemy ${i + 1} at (${enemy.x.toFixed(0)}, ${enemy.y.toFixed(0)})`);
+        });
     },
 
     updateAll: function() {
@@ -88,7 +124,7 @@ export const EnemySystem = {
                 if (enemy.deathTimer >= enemy.deathDuration) {
                     gameState.enemies.splice(i, 1);
                 }
-                continue; // Skip AI and movement for dying enemies
+                continue;
             }
             
             // Handle knockback physics
@@ -120,7 +156,7 @@ export const EnemySystem = {
                     enemy.knockback.timer = 0;
                 }
                 
-                continue; // Skip AI and movement during knockback
+                continue;
             }
             
             // AI State Management
@@ -153,7 +189,7 @@ export const EnemySystem = {
             } else {
                 // Patrol behavior
                 enemy.ai.patrolTimer += 16;
-                if (enemy.ai.patrolTimer > 2000) { // Change direction every 2 seconds
+                if (enemy.ai.patrolTimer > 2000) {
                     enemy.ai.patrolDirection = Math.random() * Math.PI * 2;
                     enemy.ai.patrolTimer = 0;
                 }

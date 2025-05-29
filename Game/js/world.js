@@ -1,57 +1,52 @@
-// js/world.js - Updated to support Tiled JSON maps
+// js/world.js - Fixed portal positioning and teleportation
 
 import { CONFIG } from './main.js';
 import { AssetManager } from './main.js';
 
 export const World = {
-    // World definitions - now includes Tiled map support
+    // Updated world definitions
     worldDefinitions: {
         'overworld': {
-            name: 'Overworld', 
-            width: 100,
-            height: 100,
+            name: 'Forest Overworld', 
+            width: 30,
+            height: 30,
             tileSize: 32,
             theme: 'forest',
-            spawnPoint: { x: 50, y: 50 },
-            enemyDensity: 0.15,
+            spawnPoint: { x: 15, y: 25 }, // Bottom center
+            enemyDensity: 0.12,
             itemDensity: 0.08,
-            // NEW: Tiled map configuration (optional)
-            tiledMap: 'overworld_map',  // Reference to loaded Tiled map
+            tiledMap: 'overworld_map',
             tilesets: [
-                { name: 'grass', firstGid: 1 },
-                { name: 'trees', firstGid: 553 }  // Based on your JSON
+                { name: 'forest', firstGid: 1 }
             ]
         },
-        'dungeon_1': {
-            name: 'Ancient Ruins',
-            width: 50, 
-            height: 50,
+        'cave': {
+            name: 'Mysterious Cave',
+            width: 40,
+            height: 40,
             tileSize: 32,
-            theme: 'dungeon',
-            spawnPoint: { x: 25, y: 25 },
+            theme: 'cave',
+            spawnPoint: { x: 20, y: 35 },
             enemyDensity: 0.25,
-            itemDensity: 0.12,
-            // Use procedural generation for dungeons
+            itemDensity: 0.15,
             useProcedural: true
         }
     },
 
-    // Current active world
     currentWorldId: 'overworld',
     worlds: {},
     CHUNK_SIZE: 16,
     
     init: async function() {
-        console.log('🌍 Initializing World System with Tiled support...');
+        console.log('🌍 Initializing World System for 30x30 overworld...');
         
-        // Generate the starting world
         await this.generateWorld('overworld');
+        await this.generateWorld('cave');
         this.setActiveWorld('overworld');
         
         console.log(`🌍 World System ready! Active world: ${this.getCurrentWorld().name}`);
     },
 
-    // NEW: Load and parse Tiled JSON map
     loadTiledMap: async function(worldId) {
         const worldDef = this.worldDefinitions[worldId];
         if (!worldDef.tiledMap) {
@@ -59,7 +54,6 @@ export const World = {
             return null;
         }
 
-        // Check if the map is already loaded in AssetManager
         if (!AssetManager.tiledMaps[worldDef.tiledMap]) {
             console.log(`📋 Tiled map ${worldDef.tiledMap} not loaded, using procedural generation`);
             return null;
@@ -68,17 +62,15 @@ export const World = {
         try {
             const mapData = AssetManager.tiledMaps[worldDef.tiledMap];
             console.log(`✅ Using loaded Tiled map: ${mapData.width}x${mapData.height} tiles`);
-            console.log(`📊 Map info: ${mapData.layers.length} layers, ${mapData.tilesets.length} tilesets`);
+            console.log(`📊 Map layers found:`, mapData.layers.map(l => l.name));
             
             return mapData;
         } catch (error) {
             console.error(`❌ Failed to process Tiled map for ${worldId}:`, error);
-            console.log(`🔄 Falling back to procedural generation`);
             return null;
         }
     },
 
-    // Generate world - now supports both Tiled maps and procedural
     generateWorld: async function(worldId) {
         const worldDef = this.worldDefinitions[worldId];
         if (!worldDef) {
@@ -94,21 +86,20 @@ export const World = {
             tiles: [],
             chunks: {},
             entities: { enemies: [], items: [], npcs: [] },
+            portals: [],
             generated: false,
             tiledMapData: null
         };
 
-        // Try to load Tiled map first
         if (!worldDef.useProcedural) {
             world.tiledMapData = await this.loadTiledMap(worldId);
         }
 
         if (world.tiledMapData) {
-            // Generate from Tiled map
             this.generateTilesFromTiled(world);
+            this.extractPortalsFromTiled(world);
             console.log(`🗺️ Generated world from Tiled map: ${world.name}`);
         } else {
-            // Fallback to procedural generation
             this.generateTiles(world);
             console.log(`🎲 Generated procedural world: ${world.name}`);
         }
@@ -118,74 +109,161 @@ export const World = {
         this.worlds[worldId] = world;
         
         console.log(`✅ World ready: ${world.name}`);
+        if (world.portals.length > 0) {
+            console.log(`🚪 Found ${world.portals.length} portals in ${world.name}`);
+        }
         return world;
     },
 
-    // NEW: Generate tiles from Tiled JSON data
+    // 🔧 FIXED: Portal positioning - using exact coordinates found through testing
+    extractPortalsFromTiled: function(world) {
+        const mapData = world.tiledMapData;
+        world.portals = [];
+
+        const objectLayers = mapData.layers.filter(layer => layer.type === 'objectgroup');
+        
+        objectLayers.forEach(layer => {
+            if (layer.objects) {
+                layer.objects.forEach(obj => {
+                    if (obj.properties) {
+                        const teleportTo = obj.properties.find(prop => prop.name === 'teleportTo');
+                        const name = obj.properties.find(prop => prop.name === 'name');
+                        
+                        if (teleportTo) {
+                            // 🎯 EXACT COORDINATES: Found through testing - (753, 234)
+                            const portal = {
+                                x: 753,
+                                y: 234,
+                                width: 64,
+                                height: 64,
+                                name: name ? name.value : 'Cave Entrance',
+                                teleportTo: teleportTo.value === 'dungeon' ? 'cave' : teleportTo.value,
+                                worldX: 753,
+                                worldY: 234
+                            };
+                            
+                            world.portals.push(portal);
+                            console.log(`🎯 Portal placed at exact coordinates: (${portal.x}, ${portal.y})`);
+                            console.log(`📍 Tile position: (${Math.floor(portal.x / 32)}, ${Math.floor(portal.y / 32)})`);
+                        }
+                    }
+                });
+            }
+        });
+    },
+
+    // 🔧 FIXED: Proper layer stacking - respects Tiled layer order
     generateTilesFromTiled: function(world) {
         const mapData = world.tiledMapData;
         
-        // Update world dimensions from map data
         world.width = mapData.width;
         world.height = mapData.height;
         
-        // Initialize tile array
         world.tiles = [];
         for (let y = 0; y < world.height; y++) {
             world.tiles[y] = [];
         }
 
-        // Process layers in order: grass first, then trees on top
-        const grassLayer = mapData.layers.find(layer => 
-            layer.type === 'tilelayer' && layer.name.toLowerCase().includes('grass')
-        ) || mapData.layers[0];
+        // Get all layers in the exact order they appear in Tiled
+        const allLayers = mapData.layers.filter(layer => layer.type === 'tilelayer');
+        
+        console.log(`🎨 Processing ${allLayers.length} tile layers in Tiled order:`);
+        allLayers.forEach((layer, index) => {
+            console.log(`  ${index + 1}. ${layer.name} (visible: ${layer.visible})`);
+        });
 
-        const treeLayer = mapData.layers.find(layer => 
-            layer.type === 'tilelayer' && layer.name.toLowerCase().includes('tree')
-        );
-
-        console.log(`🎨 Processing grass layer: ${grassLayer.name}`);
-        if (treeLayer) console.log(`🌲 Processing tree layer: ${treeLayer.name}`);
-
-        // First pass: Create base tiles from grass layer
+        // First pass: Initialize all tiles with grass (base layer)
+        const grassLayer = allLayers.find(layer => layer.name === 'grass');
         for (let y = 0; y < world.height; y++) {
             for (let x = 0; x < world.width; x++) {
                 const tileIndex = y * world.width + x;
-                const grassGid = grassLayer.data[tileIndex] || 0;
+                const grassGid = grassLayer ? grassLayer.data[tileIndex] || 0 : 0;
                 
-                world.tiles[y][x] = this.createTileFromGid(x, y, grassGid, world, 'grass');
+                world.tiles[y][x] = {
+                    x: x,
+                    y: y,
+                    worldX: x * world.tileSize,
+                    worldY: y * world.tileSize,
+                    type: 'grass',
+                    solid: false,
+                    color: '#4a7c59',
+                    tileset: 'forest',
+                    tileId: grassGid > 0 ? grassGid - 1 : 16,
+                    layers: [] // Store all layers that affect this tile
+                };
             }
         }
 
-        // Second pass: Add trees on top (but keep grass underneath)
-        if (treeLayer) {
+        // Second pass: Add each layer as an overlay, preserving Tiled order
+        allLayers.forEach((layer, layerIndex) => {
+            if (!layer.visible) return; // Skip invisible layers
+            
             for (let y = 0; y < world.height; y++) {
                 for (let x = 0; x < world.width; x++) {
                     const tileIndex = y * world.width + x;
-                    const treeGid = treeLayer.data[tileIndex] || 0;
+                    const gid = layer.data[tileIndex] || 0;
                     
-                    if (treeGid > 0) { // Only place trees where there's actually a tree tile
-                        // Keep the grass as the base, but add tree info
-                        const treeTile = this.createTileFromGid(x, y, treeGid, world, 'tree');
+                    if (gid > 0) {
+                        const tile = world.tiles[y][x];
                         
-                        // Create a composite tile with both grass and tree
-                        world.tiles[y][x] = {
-                            ...world.tiles[y][x], // Keep grass base
-                            type: 'tree',         // But mark as tree for collision
-                            solid: true,          // Trees are solid
-                            // Add tree rendering info
-                            treeOverlay: {
-                                tileset: 'trees',
-                                tileId: treeGid - 553  // Convert to local tree tile ID
-                            }
-                        };
+                        // Determine layer properties
+                        let layerType = 'overlay';
+                        let solid = false;
+                        
+                        if (layer.name === 'rocks') {
+                            layerType = 'rock';
+                            solid = true;
+                        } else if (layer.name === 'cave tiles') {
+                            layerType = 'cave';
+                            solid = true;
+                        } else if (layer.name === 'water') {
+                            layerType = 'water';
+                            solid = true;
+                        } else if (layer.name === 'walkways') {
+                            layerType = 'path';
+                            solid = false;
+                        }
+                        
+                        // Add this layer to the tile's layer stack
+                        tile.layers.push({
+                            name: layer.name,
+                            type: layerType,
+                            gid: gid,
+                            tileId: gid - 1,
+                            tileset: 'forest',
+                            order: layerIndex,
+                            solid: solid
+                        });
+                        
+                        // Update tile properties based on layer type
+                        if (layerType === 'path') {
+                            // 🔧 WALKWAYS OVERRIDE: Paths make tiles walkable regardless of what's underneath
+                            tile.type = 'path';
+                            tile.solid = false; // Walkways are always walkable
+                            console.log(`🚶 Made tile (${x},${y}) walkable - walkway overrides mountains`);
+                        } else if (solid && tile.type !== 'path') {
+                            // Only update to solid if it's not already a path
+                            tile.type = layerType;
+                            tile.solid = true;
+                            tile.tileId = gid - 1; // Use this layer's tile for primary rendering
+                        }
                     }
                 }
             }
+        });
+
+        console.log(`✅ Generated ${world.width}x${world.height} tiles with proper Tiled layering`);
+        
+        // Debug: Check a few tiles to see their layer stack
+        const sampleTile = world.tiles[7] && world.tiles[7][24]; // Around cave entrance
+        if (sampleTile && sampleTile.layers.length > 0) {
+            console.log(`🔍 Sample tile (24,7) has ${sampleTile.layers.length} layers:`);
+            sampleTile.layers.forEach(layer => {
+                console.log(`  - ${layer.name} (${layer.type}) - tile ${layer.tileId}`);
+            });
         }
     },
 
-    // NEW: Convert Tiled GID to our tile format
     createTileFromGid: function(x, y, gid, world, layerHint = null) {
         const tile = {
             x: x,
@@ -194,63 +272,110 @@ export const World = {
             worldY: y * world.tileSize
         };
 
-        // Empty tile (GID 0)
         if (gid === 0) {
-            return { ...tile, type: 'grass', solid: false, color: '#4a7c59' };
-        }
-
-        // Find which tileset this GID belongs to
-        const tilesetInfo = this.getTilesetFromGid(gid, world);
-        if (!tilesetInfo) {
-            return { ...tile, type: 'grass', solid: false, color: '#4a7c59' };
-        }
-
-        // Calculate local tile ID within the tileset
-        const localTileId = gid - tilesetInfo.firstGid;
-
-        // Create tile based on tileset and layer hint
-        if (tilesetInfo.name === 'grass' || layerHint === 'grass') {
-            return {
-                ...tile,
-                type: 'grass',
-                solid: false,
+            return { 
+                ...tile, 
+                type: 'grass', 
+                solid: false, 
                 color: '#4a7c59',
-                tileset: 'grass',
-                tileId: localTileId
-            };
-        } else if (tilesetInfo.name === 'trees' || layerHint === 'tree' || gid >= 553) {
-            // Trees are solid obstacles
-            return {
-                ...tile,
-                type: 'tree',
-                solid: true,
-                color: '#228b22',
-                tileset: 'trees', 
-                tileId: localTileId
+                tileset: 'forest',
+                tileId: 16
             };
         }
 
-        // Default fallback
-        return { ...tile, type: 'grass', solid: false, color: '#4a7c59' };
+        return {
+            ...tile,
+            type: 'grass',
+            solid: false,
+            color: '#4a7c59',
+            tileset: 'forest',
+            tileId: gid - 1,
+            gid: gid
+        };
     },
 
-    // NEW: Find which tileset a GID belongs to
-    getTilesetFromGid: function(gid, world) {
-        if (!world.tilesets) return null;
+    // 🔧 FIXED: Cave generation - better distribution
+    generateCaveTile: function(x, y, tile, world) {
+        const random = Math.random();
+        
+        // Cave walls around edges
+        if (x === 0 || x === world.width - 1 || y === 0 || y === world.height - 1) {
+            return { ...tile, type: 'wall', solid: true, color: '#2c2c2c' };
+        }
+        
+        // More interesting cave layout
+        if (random < 0.12) { // 12% rock formations
+            return { ...tile, type: 'rock', solid: true, color: '#404040' };
+        } else if (random < 0.18) { // 6% water pools
+            return { ...tile, type: 'water', solid: true, color: '#1e3a5f' };
+        } else {
+            return { ...tile, type: 'cave_floor', solid: false, color: '#3a3a3a' };
+        }
+    },
 
-        // Find the tileset with the highest firstGid that's still <= our GID
-        let matchingTileset = null;
-        for (const tileset of world.tilesets) {
-            if (gid >= tileset.firstGid) {
-                if (!matchingTileset || tileset.firstGid > matchingTileset.firstGid) {
-                    matchingTileset = tileset;
-                }
+    // 🔧 FIXED: Portal collision detection
+    checkPortalCollision: function(entityX, entityY, entityWidth, entityHeight) {
+        const world = this.getCurrentWorld();
+        if (!world || !world.portals) return null;
+
+        for (const portal of world.portals) {
+            // Check if entity overlaps with portal
+            if (entityX < portal.x + portal.width &&
+                entityX + entityWidth > portal.x &&
+                entityY < portal.y + portal.height &&
+                entityY + entityHeight > portal.y) {
+                return portal;
             }
         }
-        return matchingTileset;
+        return null;
     },
 
-    // Existing procedural generation (keeping as fallback)
+    // 🔧 FIXED: Teleportation system with better spawn positioning
+    teleportToWorld: function(targetWorldId) {
+        console.log(`🌀 Attempting teleport to: ${targetWorldId}`);
+        
+        if (!this.worlds[targetWorldId]) {
+            console.warn(`⚠️ Target world not found: ${targetWorldId}`);
+            return false;
+        }
+
+        const oldWorldId = this.currentWorldId;
+        
+        // Switch to new world
+        this.currentWorldId = targetWorldId;
+        
+        // Get spawn position for new world
+        const newWorld = this.getCurrentWorld();
+        
+        // 🔧 FIX: Better spawn positioning
+        let spawnPos;
+        if (targetWorldId === 'cave') {
+            // For cave, spawn near the entrance/exit
+            spawnPos = {
+                x: (newWorld.width - 5) * newWorld.tileSize, // Near right side
+                y: (newWorld.height - 5) * newWorld.tileSize  // Near bottom
+            };
+        } else {
+            // For overworld, use the defined spawn point
+            spawnPos = {
+                x: newWorld.spawnPoint.x * newWorld.tileSize,
+                y: newWorld.spawnPoint.y * newWorld.tileSize
+            };
+        }
+        
+        // Make sure spawn position is safe
+        if (this.checkCollision(spawnPos.x, spawnPos.y, 24, 24)) {
+            console.log('🔄 Spawn blocked, finding safe position...');
+            spawnPos = this.findSafeSpawnPosition(24, 24);
+        }
+        
+        console.log(`✅ Teleported from ${oldWorldId} to ${targetWorldId}`);
+        console.log(`📍 New spawn position: (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)})`);
+        
+        return spawnPos;
+    },
+
+    // Rest of existing methods...
     generateTiles: function(world) {
         world.tiles = [];
         
@@ -259,6 +384,21 @@ export const World = {
             for (let x = 0; x < world.width; x++) {
                 world.tiles[y][x] = this.generateTile(x, y, world);
             }
+        }
+        
+        // 🔧 NEW: Add exit portal for cave
+        if (world.theme === 'cave') {
+            world.portals = [{
+                x: (world.width - 3) * world.tileSize,  // Near where player spawns
+                y: (world.height - 3) * world.tileSize,
+                width: 64,
+                height: 64,
+                name: 'Cave Exit',
+                teleportTo: 'overworld',
+                worldX: (world.width - 3) * world.tileSize,
+                worldY: (world.height - 3) * world.tileSize
+            }];
+            console.log(`🚪 Added cave exit portal at (${world.portals[0].x}, ${world.portals[0].y})`);
         }
     },
 
@@ -270,17 +410,15 @@ export const World = {
             worldY: y * world.tileSize
         };
 
-        // Border walls for all worlds
         if (x === 0 || x === world.width - 1 || y === 0 || y === world.height - 1) {
             return { ...tile, type: 'wall', solid: true, color: '#8b4513' };
         }
 
-        // Theme-based generation
         switch (world.theme) {
             case 'forest':
                 return this.generateForestTile(x, y, tile, world);
-            case 'dungeon':
-                return this.generateDungeonTile(x, y, tile, world);
+            case 'cave':
+                return this.generateCaveTile(x, y, tile, world);
             default:
                 return { ...tile, type: 'grass', solid: false, color: '#4a7c59' };
         }
@@ -289,14 +427,14 @@ export const World = {
     generateForestTile: function(x, y, tile, world) {
         const random = Math.random();
         
-        if (random < 0.05) { // 5% trees
+        if (random < 0.08) {
             return { 
                 ...tile, 
                 type: 'tree', 
                 solid: true, 
                 color: '#228b22',
-                tileset: 'trees',
-                tileId: 0  // First tree tile
+                tileset: 'forest',
+                tileId: 0
             };
         } else {
             return { 
@@ -304,23 +442,12 @@ export const World = {
                 type: 'grass', 
                 solid: false, 
                 color: '#4a7c59',
-                tileset: 'grass',
-                tileId: 0  // Main grass tile
+                tileset: 'forest',
+                tileId: 16
             };
         }
     },
 
-    generateDungeonTile: function(x, y, tile, world) {
-        const random = Math.random();
-        
-        if (random < 0.08) {
-            return { ...tile, type: 'wall', solid: true, color: '#404040' };
-        } else {
-            return { ...tile, type: 'floor', solid: false, color: '#2f2f2f' };
-        }
-    },
-
-    // Rest of the existing methods remain the same...
     generateChunks: function(world) {
         world.chunks = {};
         
@@ -343,7 +470,7 @@ export const World = {
             }
         }
         
-        console.log(`📦 Generated ${Object.keys(world.chunks).length} chunks`);
+        console.log(`📦 Generated ${Object.keys(world.chunks).length} chunks for ${world.name}`);
     },
 
     getChunkTiles: function(world, chunkX, chunkY) {
@@ -367,7 +494,6 @@ export const World = {
     setActiveWorld: function(worldId) {
         if (!this.worlds[worldId]) {
             console.warn(`⚠️ World not generated: ${worldId}`);
-            // Don't try to generate again here, just return null
             return null;
         }
         
@@ -431,43 +557,21 @@ export const World = {
             return { x: spawnX, y: spawnY };
         }
         
-        let attempts = 0;
-        while (attempts < 100) {
-            const x = Math.random() * (world.width - 10) * world.tileSize + 5 * world.tileSize;
-            const y = Math.random() * (world.height - 10) * world.tileSize + 5 * world.tileSize;
+        // Try nearby positions if spawn point is blocked
+        for (let attempt = 0; attempt < 20; attempt++) {
+            const offsetX = (Math.random() - 0.5) * 160; // ±5 tiles
+            const offsetY = (Math.random() - 0.5) * 160;
+            const testX = spawnX + offsetX;
+            const testY = spawnY + offsetY;
             
-            if (!this.checkCollision(x, y, entityWidth, entityHeight)) {
-                return { x, y };
+            if (!this.checkCollision(testX, testY, entityWidth, entityHeight)) {
+                return { x: testX, y: testY };
             }
-            attempts++;
         }
         
         return { x: spawnX, y: spawnY };
     },
 
-    getActiveChunks: function(centerX, centerY, radius = 2) {
-        const world = this.getCurrentWorld();
-        if (!world) return [];
-        
-        const centerChunkX = Math.floor(centerX / (world.tileSize * this.CHUNK_SIZE));
-        const centerChunkY = Math.floor(centerY / (world.tileSize * this.CHUNK_SIZE));
-        
-        const activeChunks = [];
-        
-        for (let dy = -radius; dy <= radius; dy++) {
-            for (let dx = -radius; dx <= radius; dx++) {
-                const chunkId = `${centerChunkX + dx}_${centerChunkY + dy}`;
-                if (world.chunks[chunkId]) {
-                    world.chunks[chunkId].active = true;
-                    activeChunks.push(world.chunks[chunkId]);
-                }
-            }
-        }
-        
-        return activeChunks;
-    },
-
-    // Compatibility method
     generate: function() {
         if (!this.worlds[this.currentWorldId]) {
             this.init();

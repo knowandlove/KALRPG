@@ -1,72 +1,86 @@
-// js/renderer.js - Updated for layered tile rendering
+// js/renderer.js - Clean sprite rendering system
 
-// Import dependencies
-import { gameState, Player, CONFIG, ctx, canvas, AssetManager } from './main.js';
+import { gameState, Player, CONFIG, ctx, canvas, AssetManager, World } from './main.js';
 
 export const Renderer = {
     renderWorld: function() {
         if (!gameState.world || !gameState.camera || !ctx) return;
 
+        // 🔧 DISABLE ANTI-ALIASING for pixel-perfect rendering
+        ctx.imageSmoothingEnabled = false;
+
         const camera = gameState.camera;
-        const startX = Math.floor(camera.x / CONFIG.TILE_SIZE);
-        const endX = Math.min(startX + Math.ceil(camera.width / CONFIG.TILE_SIZE) + 1, CONFIG.WORLD_WIDTH);
-        const startY = Math.floor(camera.y / CONFIG.TILE_SIZE);
-        const endY = Math.min(startY + Math.ceil(camera.height / CONFIG.TILE_SIZE) + 1, CONFIG.WORLD_HEIGHT);
+        
+        // Get world dimensions from current world, not CONFIG
+        const currentWorld = World.getCurrentWorld();
+        if (!currentWorld) return;
+        
+        const worldWidth = currentWorld.width;
+        const worldHeight = currentWorld.height;
+        const tileSize = currentWorld.tileSize;
+        
+        const startX = Math.floor(camera.x / tileSize);
+        const endX = Math.min(startX + Math.ceil(camera.width / tileSize) + 1, worldWidth);
+        const startY = Math.floor(camera.y / tileSize);
+        const endY = Math.min(startY + Math.ceil(camera.height / tileSize) + 1, worldHeight);
         
         for (let y = startY; y < endY; y++) {
             for (let x = startX; x < endX; x++) {
                 if (gameState.world[y] && gameState.world[y][x]) {
                     const tile = gameState.world[y][x];
-                    const screenX = x * CONFIG.TILE_SIZE - camera.x;
-                    const screenY = y * CONFIG.TILE_SIZE - camera.y;
+                    // Round coordinates to prevent sub-pixel rendering
+                    const screenX = Math.round(x * tileSize - camera.x);
+                    const screenY = Math.round(y * tileSize - camera.y);
                     
-                    // 🎨 FIRST: Draw the base grass tile
+                    // Draw the base grass tile
                     let drawnBase = false;
-                    if (tile.tileset && tile.tileId !== undefined && AssetManager) {
+                    if (AssetManager) {
                         drawnBase = AssetManager.drawTile(
                             ctx, 
-                            tile.tileset, 
+                            'forest',
                             tile.tileId, 
                             screenX, 
                             screenY, 
-                            CONFIG.TILE_SIZE, 
-                            CONFIG.TILE_SIZE
+                            tileSize, 
+                            tileSize
                         );
                     }
                     
-                    // Fallback for base tile if tileset fails
+                    // Fallback if tileset doesn't load
                     if (!drawnBase) {
-                        switch (tile.type) {
-                            case 'grass': ctx.fillStyle = tile.color || '#4a7c59'; break;
-                            case 'wall': ctx.fillStyle = tile.color || '#8b4513'; break;
-                            case 'tree': ctx.fillStyle = tile.color || '#4a7c59'; break; // Use grass color as base
-                            case 'rock': ctx.fillStyle = tile.color || '#696969'; break;
-                            case 'water': ctx.fillStyle = tile.color || '#4682b4'; break;
-                            case 'path': ctx.fillStyle = tile.color || '#8b7355'; break;
-                            case 'dirt': ctx.fillStyle = tile.color || '#8b4513'; break;
-                            case 'floor': ctx.fillStyle = tile.color || '#2f2f2f'; break;
-                            case 'stone': ctx.fillStyle = tile.color || '#696969'; break;
-                            default: ctx.fillStyle = tile.color || '#654321';
-                        }
-                        
-                        ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
+                        ctx.fillStyle = this.getTileColor(tile);
+                        ctx.fillRect(screenX, screenY, tileSize, tileSize);
                     }
                     
-                    // 🌲 SECOND: Draw tree overlay if it exists
-                    if (tile.treeOverlay && AssetManager) {
-                        AssetManager.drawTile(
-                            ctx,
-                            tile.treeOverlay.tileset,
-                            tile.treeOverlay.tileId,
-                            screenX,
-                            screenY,
-                            CONFIG.TILE_SIZE,
-                            CONFIG.TILE_SIZE
-                        );
+                    // Draw all additional layers on top in order
+                    if (tile.layers && tile.layers.length > 0) {
+                        // Sort layers by their original Tiled order
+                        const sortedLayers = [...tile.layers].sort((a, b) => a.order - b.order);
+                        
+                        sortedLayers.forEach(layer => {
+                            if (AssetManager) {
+                                AssetManager.drawTile(
+                                    ctx,
+                                    layer.tileset,
+                                    layer.tileId,
+                                    screenX,
+                                    screenY,
+                                    tileSize,
+                                    tileSize
+                                );
+                            } else {
+                                // Fallback color rendering
+                                ctx.fillStyle = this.getLayerColor(layer.type);
+                                ctx.fillRect(screenX, screenY, tileSize, tileSize);
+                            }
+                        });
                     }
                 }
             }
         }
+        
+        // Render portals (currently disabled for seamless entrance)
+        this.renderPortals();
     },
 
     renderPlayer: function() {
@@ -75,21 +89,65 @@ export const Renderer = {
         const screenX = Player.x - gameState.camera.x;
         const screenY = Player.y - gameState.camera.y;
         
-        // Determine player color based on state
+        // 🎨 NEW: Render player sprite if loaded
+        if (Player.sprite && Player.sprite.loaded && Player.sprite.image) {
+            const frame = Player.getCurrentFrame();
+            if (frame) {
+                // Disable anti-aliasing for crisp pixel art
+                const originalSmoothing = ctx.imageSmoothingEnabled;
+                ctx.imageSmoothingEnabled = false;
+                
+                // Save context for effects
+                ctx.save();
+                
+                // Apply damage flash effect
+                if (Player.damageFlash) {
+                    ctx.globalCompositeOperation = 'multiply';
+                    ctx.fillStyle = '#ff4444';
+                    ctx.fillRect(screenX, screenY, Player.width, Player.height);
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+                
+                // Apply invulnerability flashing
+                if (Player.invulnerable) {
+                    const flashCycle = Math.floor(Player.invulnerabilityTimer / 100) % 2;
+                    if (flashCycle) {
+                        ctx.globalAlpha = 0.5;
+                    }
+                }
+                
+                // Draw the sprite frame
+                ctx.drawImage(
+                    Player.sprite.image,
+                    frame.sourceX, frame.sourceY, frame.width, frame.height,  // Source
+                    Math.round(screenX), Math.round(screenY), Player.width, Player.height  // Destination (scaled up)
+                );
+                
+                // Restore context
+                ctx.restore();
+                ctx.imageSmoothingEnabled = originalSmoothing;
+            }
+        } else {
+            // 🔧 FALLBACK: Original colored square if sprite not loaded
+            this.renderPlayerFallback(screenX, screenY);
+        }
+        
+        // Render player effects (charging, sword attack)
+        this.renderPlayerEffects(screenX, screenY);
+    },
+
+    renderPlayerFallback: function(screenX, screenY) {
         let playerColor = '#4169e1'; // Default blue
         if (Player.damageFlash) {
             playerColor = '#ff4444'; // Red when taking damage
         } else if (Player.invulnerable) {
-            // Flash between blue and light blue during invulnerability
             const flashCycle = Math.floor(Player.invulnerabilityTimer / 100) % 2;
             playerColor = flashCycle ? '#4169e1' : '#6495ed';
         }
         
-        // Draw player body
         ctx.fillStyle = playerColor;
         ctx.fillRect(screenX, screenY, Player.width, Player.height);
         
-        // Draw player border
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
         ctx.strokeRect(screenX, screenY, Player.width, Player.height);
@@ -124,30 +182,29 @@ export const Renderer = {
         }
         ctx.closePath();
         ctx.fill();
-        
-        // ⚡ CHARGING ANIMATION - Shows power building up
+    },
+
+    renderPlayerEffects: function(screenX, screenY) {
+        const centerX = screenX + Player.width / 2;
+        const centerY = screenY + Player.height / 2;
+
+        // ⚡ CHARGING ANIMATION
         if (Player.charging && Player.chargeLevel > 0) {
             const chargePercent = Player.chargeLevel / Player.maxChargeLevel;
-            
-            // Pulsing outer ring that grows with charge
             const maxRadius = 40;
             const currentRadius = 15 + (maxRadius - 15) * chargePercent;
+            const pulseTime = Date.now() / (200 - chargePercent * 100);
+            const pulseAlpha = (Math.sin(pulseTime) + 1) / 2;
             
-            // Pulsing effect - faster pulse as charge increases
-            const pulseSpeed = 2 + (chargePercent * 6); // Speed increases with charge
-            const pulseTime = Date.now() / (200 - chargePercent * 100); // Faster pulse
-            const pulseAlpha = (Math.sin(pulseTime) + 1) / 2; // 0 to 1
-            
-            // Determine charge color based on level
             let chargeColor, chargeText;
             if (chargePercent < 0.33) {
-                chargeColor = '#87ceeb'; // Light blue
+                chargeColor = '#87ceeb';
                 chargeText = 'Charging...';
             } else if (chargePercent < 0.67) {
-                chargeColor = '#4169e1'; // Blue
+                chargeColor = '#4169e1';
                 chargeText = 'Magic Shot!';
             } else {
-                chargeColor = '#ffd700'; // Gold
+                chargeColor = '#ffd700';
                 chargeText = 'Power Blast!';
             }
             
@@ -170,7 +227,7 @@ export const Renderer = {
             ctx.fill();
             ctx.restore();
             
-            // Draw charge particles/sparks
+            // Draw charge particles
             const particleCount = Math.floor(chargePercent * 8);
             for (let i = 0; i < particleCount; i++) {
                 const angle = (Date.now() / 100 + i * Math.PI * 2 / particleCount) % (Math.PI * 2);
@@ -187,63 +244,90 @@ export const Renderer = {
                 ctx.restore();
             }
             
-            // Draw charge level text above player
+            // Draw charge level text
             if (chargePercent >= 0.33) {
                 ctx.fillStyle = chargeColor;
                 ctx.font = 'bold 12px monospace';
                 ctx.textAlign = 'center';
                 ctx.fillText(chargeText, centerX, screenY - 15);
-                ctx.textAlign = 'left'; // Reset alignment
+                ctx.textAlign = 'left';
             }
         }
         
-        // 🗡️ SWORD ANIMATION - This is what was missing!
+        // 🗡️ SWORD ANIMATION
         if (Player.isAttacking) {
             const progress = Player.attackTimer / Player.attackDuration;
-            const swingAngle = progress * Math.PI; // Full 180-degree swing
+            const swingAngle = progress * Math.PI;
             
-            ctx.strokeStyle = '#ffd700'; // Gold color
+            ctx.strokeStyle = '#ffd700';
             ctx.lineWidth = 3;
             
             const swordLength = 30;
             let startAngle, swingDirection;
             
-            // Determine swing start angle and direction based on facing
             switch (Player.facing) {
                 case 'up':
-                    startAngle = -Math.PI / 2 - Math.PI / 4; // Start from upper-left
-                    swingDirection = 1; // Swing right
+                    startAngle = -Math.PI / 2 - Math.PI / 4;
+                    swingDirection = 1;
                     break;
                 case 'down':
-                    startAngle = Math.PI / 2 - Math.PI / 4; // Start from lower-left
-                    swingDirection = 1; // Swing right
+                    startAngle = Math.PI / 2 - Math.PI / 4;
+                    swingDirection = 1;
                     break;
                 case 'left':
-                    startAngle = -Math.PI / 4; // Start from upper-left
-                    swingDirection = -1; // Swing down
+                    startAngle = -Math.PI / 4;
+                    swingDirection = -1;
                     break;
                 case 'right':
-                    startAngle = -Math.PI / 4; // Start from upper-right
-                    swingDirection = 1; // Swing down
+                    startAngle = -Math.PI / 4;
+                    swingDirection = 1;
                     break;
             }
             
-            // Calculate current sword position in the swing
             const currentAngle = startAngle + (swingAngle * swingDirection);
             const swordEndX = centerX + Math.cos(currentAngle) * swordLength;
             const swordEndY = centerY + Math.sin(currentAngle) * swordLength;
             
-            // Draw sword line
             ctx.beginPath();
             ctx.moveTo(centerX, centerY);
             ctx.lineTo(swordEndX, swordEndY);
             ctx.stroke();
             
-            // Draw sword tip
             ctx.fillStyle = '#ffd700';
             ctx.beginPath();
             ctx.arc(swordEndX, swordEndY, 2, 0, Math.PI * 2);
             ctx.fill();
+        }
+    },
+
+    renderPortals: function() {
+        // Portal rendering disabled for seamless cave entrance
+        return;
+    },
+
+    getLayerColor: function(layerType) {
+        // Fallback colors for different layer types
+        switch (layerType) {
+            case 'rock': return '#8B4513';
+            case 'cave': return '#2c2c2c';
+            case 'water': return '#1e3a5f';
+            case 'path': return '#8b7355';
+            default: return '#654321';
+        }
+    },
+
+    getTileColor: function(tile) {
+        // Fallback colors for when tilesets don't load
+        switch (tile.type) {
+            case 'grass': return '#4a7c59';
+            case 'tree': return '#228b22';
+            case 'rock': return '#696969';
+            case 'water': return '#1e3a5f';
+            case 'cave': return '#2c2c2c';
+            case 'path': return '#8b7355';
+            case 'cave_floor': return '#3a3a3a';
+            case 'wall': return '#404040';
+            default: return tile.color || '#654321';
         }
     }
 };

@@ -1,27 +1,40 @@
-// js/camera.js
+// js/camera.js - Fixed for multiple world sizes
 
-// Import dependencies
 import { gameState, Player, CONFIG } from './main.js';
+import { World } from './main.js';
 
 export const Camera = {
     update: function() {
         if (!Player || !gameState || !gameState.camera || !CONFIG) return;
         
+        // Get current world for bounds checking
+        const currentWorld = World.getCurrentWorld();
+        if (!currentWorld) return;
+        
         // Center camera on player
         gameState.camera.x = Player.x - gameState.camera.width / 2;
         gameState.camera.y = Player.y - gameState.camera.height / 2;
         
+        // 🔧 FIXED: Use current world dimensions instead of CONFIG
+        const worldPixelWidth = currentWorld.width * currentWorld.tileSize;
+        const worldPixelHeight = currentWorld.height * currentWorld.tileSize;
+        
         // Clamp camera to world boundaries
-        // Prevent camera from showing area outside the world
         gameState.camera.x = Math.max(0, Math.min(
             gameState.camera.x, 
-            CONFIG.WORLD_WIDTH * CONFIG.TILE_SIZE - gameState.camera.width
+            worldPixelWidth - gameState.camera.width
         ));
         
         gameState.camera.y = Math.max(0, Math.min(
             gameState.camera.y, 
-            CONFIG.WORLD_HEIGHT * CONFIG.TILE_SIZE - gameState.camera.height
+            worldPixelHeight - gameState.camera.height
         ));
+        
+        // Debug log for teleportation issues
+        if (gameState.teleporting) {
+            console.log(`📷 Camera update: Player(${Player.x.toFixed(1)}, ${Player.y.toFixed(1)}) -> Camera(${gameState.camera.x.toFixed(1)}, ${gameState.camera.y.toFixed(1)})`);
+            console.log(`🌍 World bounds: ${worldPixelWidth}x${worldPixelHeight} pixels`);
+        }
     },
 
     // Utility function to convert world coordinates to screen coordinates
@@ -70,5 +83,15 @@ export const Camera = {
             top: gameState.camera.y,
             bottom: gameState.camera.y + gameState.camera.height
         };
+    },
+
+    // 🔧 NEW: Force camera to center on player (useful after teleportation)
+    centerOnPlayer: function() {
+        if (!Player || !gameState.camera) return;
+        
+        gameState.camera.x = Player.x - gameState.camera.width / 2;
+        gameState.camera.y = Player.y - gameState.camera.height / 2;
+        
+        this.update(); // Apply bounds checking
     }
 };

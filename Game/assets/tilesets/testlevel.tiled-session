@@ -3,10 +3,50 @@
         "height": 4300,
         "width": 2
     },
-    "activeFile": "",
+    "activeFile": "overworld.tmx",
     "expandedProjectPaths": [
+        "."
     ],
     "fileStates": {
+        "forest.tsx": {
+            "scaleInDock": 1,
+            "scaleInEditor": 1
+        },
+        "grass.tsx": {
+            "scaleInDock": 2.5715,
+            "scaleInEditor": 1
+        },
+        "map.tmx": {
+            "scale": 0.75,
+            "selectedLayer": 3,
+            "viewCenter": {
+                "x": 612,
+                "y": 516
+            }
+        },
+        "map.tmx#boreal_1": {
+            "scaleInDock": 2
+        },
+        "map.tmx#boreal_2": {
+            "scaleInDock": 2
+        },
+        "map.tmx#boreal_3": {
+            "scaleInDock": 2
+        },
+        "map.tmx#boreal_4": {
+            "scaleInDock": 2
+        },
+        "map.tmx#boreal_5": {
+            "scaleInDock": 2
+        },
+        "overworld.tmx": {
+            "scale": 1.5,
+            "selectedLayer": 4,
+            "viewCenter": {
+                "x": 269.33333333333326,
+                "y": 186.66666666666666
+            }
+        },
         "trees.tsx": {
             "scaleInDock": 1,
             "scaleInEditor": 1
@@ -14,17 +54,25 @@
     },
     "last.exportedFilePath": "/Users/jasonlackey/Documents/KALRPG/Game/assets/maps",
     "last.imagePath": "/Users/jasonlackey/Documents/KALRPG/Tilesets/Biome Tileset Pack A/16x16/boreal_forest/tilesets",
-    "map.height": 100,
+    "map.height": 30,
     "map.lastUsedExportFilter": "All Files (*)",
     "map.lastUsedFormat": "tmx",
-    "map.width": 100,
+    "map.tileHeight": 16,
+    "map.tileWidth": 16,
+    "map.width": 30,
     "openFiles": [
+        "overworld.tmx",
+        "forest.tsx"
     ],
     "project": "testlevel.tiled-project",
     "recentFiles": [
-        "trees.tsx"
+        "forest.tsx",
+        "overworld.tmx",
+        "grass.tsx",
+        "trees.tsx",
+        "map.tmx"
     ],
-    "tileset.embedInMap": true,
+    "tileset.embedInMap": false,
     "tileset.lastUsedFormat": "tsx",
     "tileset.tileSize": {
         "height": 16,
